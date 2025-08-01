@@ -3,7 +3,7 @@ export default defineNuxtConfig({
   ssr: false,
   compatibilityDate: '2025-05-15',
   devtools: { enabled: true },
-  modules: ['nuxt-quasar-ui'],
+  modules: ['nuxt-quasar-ui', '@vite-pwa/nuxt'],
   quasar: {
     plugins: [
       'Notify', // Ví dụ: thêm plugin Notify của Quasar
@@ -29,4 +29,31 @@ export default defineNuxtConfig({
       }
     }
   },
+  pwa: {
+    meta: {
+      mobileApp: true,
+      mobileAppIOS: true,
+      appleStatusBarStyle: 'black-translucent'
+    },
+    manifest: {
+      name: 'My Nuxt PWA',
+      short_name: 'NuxtPWA',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#4A90E2',
+      orientation: 'portrait'
+    },
+    workbox: {
+      // nếu cần tuỳ chỉnh SW
+    }
+  },
+  app: {
+    head: {
+      meta: [
+        { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' }
+      ],
+    }
+  }
 })
