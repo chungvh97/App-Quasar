@@ -1,0 +1,113 @@
+# .codemagic/codemagic.yaml (hoặc codemagic.yaml ở thư mục gốc)
+
+workflows:
+  ios-capacitor-build: # Đặt tên cho workflow của bạn
+    name: iOS Capacitor Build
+    instance_type: mac_mini_m1 # Hoặc mac_pro, tùy nhu cầu và gói dịch vụ
+    max_build_duration: 60 # Giới hạn thời gian build (phút)
+    environment:
+      node: 18 # Chọn phiên bản Node.js bạn đang dùng
+      xcode: latest # Hoặc một phiên bản Xcode cụ thể (ví dụ: 15.1)
+      cocoapods: default # Codemagic thường có sẵn CocoaPods
+      vars:
+        # Biến môi trường bạn có thể cần trong quá trình build
+        # Ví dụ: APP_ID lấy từ capacitor.config.json
+        APP_ID: "com.yourcompany.myteashopapp" # Thay bằng App ID của bạn
+        # Bạn có thể thêm các biến môi trường cho Supabase URL và Key nếu cần trong quá trình build web assets
+        # SUPABASE_URL: Encrypted(...)
+        # SUPABASE_KEY: Encrypted(...)
+        # (Nên mã hóa các biến nhạy cảm trong UI của Codemagic)
+
+    scripts:
+      - name: Install project dependencies
+        script: |
+          npm install # Hoặc yarn install
+      - name: Install Capacitor CLI globally (hoặc dùng npx)
+        script: |
+          npm install -g @capacitor/cli
+      - name: Build Nuxt web application
+        script: |
+          # Đảm bảo nuxt.config.ts của bạn có ssr: false cho bản build này
+          npm run generate # Build SPA vào .output/public
+      - name: Add iOS platform (nếu thư mục ios chưa có trong repo)
+        script: |
+          # Bỏ qua nếu thư mục 'ios' đã có trong repo và được cấu hình đúng
+          # npx cap add ios
+          echo "iOS platform should already exist or be added if first time"
+      - name: Sync web assets and native dependencies
+        script: |
+          npx cap sync ios # Sẽ tự động chạy pod install
+      - name: Set up code signing (QUAN TRỌNG)
+        script: |
+          # Đây là phần phức tạp nhất và phụ thuộc vào cách bạn quản lý chứng chỉ
+          # Codemagic cung cấp nhiều cách:
+          # 1. Tải lên thủ công file .p12 và .mobileprovision vào Codemagic UI (Secure files)
+          # 2. Tích hợp với App Store Connect API Key.
+          # Xem tài liệu của Codemagic: https://docs.codemagic.io/yaml-code-signing/ios-code-signing/
+          echo "INFO: Setting up code signing using Codemagic's environment variables..."
+          keychain initialize
+          keychain add-certificates --certificate $CM_CERTIFICATE --certificate-password $CM_CERTIFICATE_PASSWORD
+          keychain add-provisioning-profile --profile $CM_PROVISIONING_PROFILE
+          # Các biến $CM_CERTIFICATE, $CM_CERTIFICATE_PASSWORD, $CM_PROVISIONING_PROFILE
+          # được cấu hình trong Environment variables của Codemagic (nên mã hóa)
+          # và trỏ đến các file bạn đã tải lên.
+
+      - name: Build iOS Archive with Xcode
+        script: |
+          cd ios/App
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath $CM_BUILD_DIR/output/MyTeaShopApp.xcarchive \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM="$APPLE_DEVELOPER_TEAM_ID" # Biến môi trường từ Codemagic
+            # CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY_TITLE" # Thường là "Apple Distribution" hoặc "Apple Development"
+            # PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME"
+            # (Các cài đặt ký có thể phức tạp, Codemagic có thể tự động hóa phần nào nếu bạn dùng tích hợp App Store Connect)
+
+      - name: Export IPA
+        script: |
+          # Bạn cần tạo một file ExportOptions.plist và đặt nó trong repo, ví dụ: ios/App/ExportOptions.plist
+          # Nội dung file này sẽ tùy thuộc vào bạn muốn build Ad Hoc, App Store, Development, etc.
+          # Ví dụ ExportOptions.plist cho Ad Hoc:
+          # <?xml version="1.0" encoding="UTF-8"?>
+          # <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          # <plist version="1.0">
+          # <dict>
+          #   <key>method</key>
+          #   <string>ad-hoc</string>
+          #   <key>teamID</key>
+          #   <string>YOUR_TEAM_ID</string> #   <key>provisioningProfiles</key>
+          #   <dict>
+          #     <key>com.yourcompany.myteashopapp</key> #     <string>AdHoc Provisioning Profile Name</string> #   </dict>
+          #   <key>signingStyle</key>
+          #   <string>manual</string>
+          #   <key>signingCertificate</key>
+          #   <string>Apple Distribution</string> # </dict>
+          # </plist>
+
+          xcodebuild -exportArchive \
+            -archivePath $CM_BUILD_DIR/output/MyTeaShopApp.xcarchive \
+            -exportPath $CM_EXPORT_PATH \
+            -exportOptionsPlist ios/App/ExportOptions.plist # Đường dẫn đến file ExportOptions.plist của bạn
+            # (Đảm bảo file ExportOptions.plist này tồn tại và được cấu hình đúng)
+
+    artifacts:
+      - $CM_BUILD_DIR/output/MyTeaShopApp.xcarchive # File archive để debug hoặc re-export
+      - $CM_EXPORT_PATH/*.ipa # File IPA thành phẩm
+
+    publishing:
+      # Tự động gửi lên TestFlight (nếu bạn cấu hình App Store Connect API Key)
+      # app_store_connect:
+      #   api_key: $APP_STORE_CONNECT_API_KEY_BASE64 # (Biến môi trường mã hóa)
+      #   issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      #   key_id: $APP_STORE_CONNECT_KEY_ID
+      #   # ... các cấu hình khác cho TestFlight / App Store ...
+
+      email: # Gửi email thông báo build thành công/thất bại
+        recipients:
+          - chungvh@runsystem.net # Thay bằng email của bạn
+        notify:
+          success: true
+          failure: true
